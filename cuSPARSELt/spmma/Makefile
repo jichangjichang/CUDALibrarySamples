@@ -47,12 +47,15 @@
 CUDA_TOOLKIT    := $(shell dirname $$(command -v nvcc))/..
 INC             := -I$(CUDA_TOOLKIT)/include
 LIBS            := -lcudart -lcusparse
-CUSPARSELT_PATH := ${CUDA_TOOLKIT}/lib64
+CUSPARSELT_PATH := /usr/lib/x86_64-linux-gnu
 
-all: spmma_example spmma_example_static
+all: spmma_example spmma_example_static blas_example
 
 spmma_example: spmma_example.cpp
 	nvcc $(INC) spmma_example.cpp -o spmma_example $(LIBS) -lcusparseLt
+
+blas_example: blas_example.cpp
+	nvcc $(INC) blas_example.cpp -o blas_example -lcublas
 
 spmma_example_static: spmma_example.cpp
 	nvcc $(INC) spmma_example.cpp -o spmma_example_static $(LIBS)  \

@@ -47,8 +47,8 @@
  * Users Notice.
  */
 #include <cuda_runtime_api.h> // cudaMalloc, cudaMemcpy, etc.
-#include <cusparseLt.h>       // cusparseLt header
-#include <cublas_v2.h>       // cusparseLt header
+#include <cublas.h>
+#include <cublas_v2.h>
 #include <cublas_api.h>
 #include <cstdio>             // printf
 #include <cstdlib>            // std::rand
@@ -67,16 +67,15 @@
     }                                                                          \
 }
 
-#define CHECK_CUSPARSE(func)                                                   \
+#define CHECK_CUBLAS(func)                                                       \
 {                                                                              \
-    cusparseStatus_t status = (func);                                          \
-    if (status != CUSPARSE_STATUS_SUCCESS) {                                   \
-        printf("CUSPARSE API failed at line %d with error: %s (%d)\n",         \
-               __LINE__, cusparseGetErrorString(status), status);              \
+    cublasStatus_t status = (func);                                               \
+    if (status != CUBLAS_STATUS_SUCCESS) {                                               \
+        printf("CUBLSE API failed at line %d with error: %s (%d)\n",             \
+               __LINE__, cudaGetErrorString((cudaError_t)status), status);                  \
         return EXIT_FAILURE;                                                   \
     }                                                                          \
 }
-
 #define WIDTH    4096
 
 #define MATRIX_M WIDTH
@@ -85,7 +84,7 @@
 //#define VALIDATE TRUE
 constexpr int EXIT_UNSUPPORTED = 2;
 
-int run_sparse();
+int run_blas();
 
 int main(void) {
     int major_cc, minor_cc;
@@ -99,12 +98,12 @@ int main(void) {
                      major_cc, minor_cc);
         return EXIT_UNSUPPORTED;
     }
-    run_sparse();
+    run_blas();
 
     return EXIT_SUCCESS;
 }
 
-int run_sparse()
+int run_blas()
 {
     // Host problem definition, row-major order
     //
@@ -123,41 +122,38 @@ for(int k_init = k_size[0]+step; k_init<=max_value;k_init+=step)
 //for(int mn_init = mn_size[0]+step; mn_init<=max_value;mn_init+=step)
 //	mn_size.push_back(mn_init);
 
+
 std::printf("(     m,     n,     k)   TFLOPS\n");
 for(auto itrMN : mn_size){
 for(auto itrK : k_size){
     int m     = itrMN; // bigger sizes may require dynamic allocations
     int n     = itrMN; // bigger sizes may require dynamic allocations
     int k     = itrK; // bigger sizes may require dynamic allocations
-    auto          order = CUSPARSE_ORDER_COL;
-    auto          opA   = CUSPARSE_OPERATION_TRANSPOSE;
-    auto          opB   = CUSPARSE_OPERATION_NON_TRANSPOSE;
+    auto          opA   = CUBLAS_OP_T;
+    auto          opB   = CUBLAS_OP_N;
     auto          type  = CUDA_R_16F;
-    auto          compute_type = CUSPARSE_COMPUTE_16F;
+   // auto          compute_type = CUSPARSE_COMPUTE_16F;
 
-    bool     is_rowmajor    = (order == CUSPARSE_ORDER_ROW);
-    bool     isA_transposed = (opA != CUSPARSE_OPERATION_NON_TRANSPOSE);
-    bool     isB_transposed = (opB != CUSPARSE_OPERATION_NON_TRANSPOSE);
-    auto     num_A_rows     = (isA_transposed) ? k : m;
-    auto     num_A_cols     = (isA_transposed) ? m : k;
+    bool     is_rowmajor    = 1;//(order == CUSPARSE_ORDER_ROW);
+    bool     isA_transposed = (opA != CUBLAS_OP_N);
+    bool     isB_transposed = (opB != CUBLAS_OP_N);
+    auto     num_A_rows     = (isA_transposed) ? k : m; //K
+    auto     num_A_cols     = (isA_transposed) ? m : k; //m
     auto     num_B_rows     = (isB_transposed) ? n : k;
     auto     num_B_cols     = (isB_transposed) ? k : n;
     auto     num_C_rows     = m;
     auto     num_C_cols     = n;
     unsigned alignment      = 16;
-    auto     lda            = (is_rowmajor) ? num_A_cols : num_A_rows;
-    auto     ldb            = (is_rowmajor) ? num_B_cols : num_B_rows;
-    auto     ldc            = (is_rowmajor) ? num_C_cols : num_C_rows;
-    auto     A_height       = (is_rowmajor) ? num_A_rows : num_A_cols;
-    auto     B_height       = (is_rowmajor) ? num_B_rows : num_B_cols;
-    auto     C_height       = (is_rowmajor) ? num_C_rows : num_C_cols;
+    auto     lda            = num_A_rows;
+    auto     ldb            = num_B_rows;
+    auto     ldc            = m;
+    auto     A_height       = num_A_cols;
+    auto     B_height       = num_B_cols;
+    auto     C_height       = n;
     auto     A_size         = A_height * lda * sizeof(__half);
     auto     B_size         = B_height * ldb * sizeof(__half);
     auto     C_size         = C_height * ldc * sizeof(__half);
     auto     Result_C_size         = C_height * ldc * sizeof(float);
-//    __half hA[m * k];
-//    __half hB[k * n];
-//    __half hC[m * n] = {};
     __half *hA,*hB,*hC;
     hA = (__half*)malloc(A_size);    
     hB = (__half*)malloc(B_size);    
@@ -170,105 +166,50 @@ for(auto itrK : k_size){
     float beta  = 0.0f;
     //--------------------------------------------------------------------------
     // Device memory management
-    __half *dA, *dB, *dC, *dD, *dA_compressed;
-    int    *d_valid;
+    __half *dA, *dB, *dC, *dD;
     CHECK_CUDA( cudaMalloc((void**) &dA, A_size) )
     CHECK_CUDA( cudaMalloc((void**) &dB, B_size) )
     CHECK_CUDA( cudaMalloc((void**) &dC, C_size) )
-    CHECK_CUDA( cudaMalloc((void**) &d_valid, sizeof(d_valid)) )
     dD = dC;
 
     CHECK_CUDA( cudaMemcpy(dA, hA, A_size, cudaMemcpyHostToDevice) )
     CHECK_CUDA( cudaMemcpy(dB, hB, B_size, cudaMemcpyHostToDevice) )
     CHECK_CUDA( cudaMemcpy(dC, hC, C_size, cudaMemcpyHostToDevice) )
+
     //--------------------------------------------------------------------------
-    cusparseLtHandle_t             handle;
-    cusparseLtMatDescriptor_t      matA, matB, matC;
-    cusparseLtMatmulDescriptor_t   matmul;
-    cusparseLtMatmulAlgSelection_t alg_sel;
-    cusparseLtMatmulPlan_t         plan;
     cudaStream_t                   stream = nullptr;
     cudaEvent_t startEvent = NULL, stopEvent = NULL;
-    CHECK_CUSPARSE( cusparseLtInit(&handle) )
 
     // Create CUDA event to time the execution time of each algo    
     CHECK_CUDA(cudaEventCreate(&startEvent))
     CHECK_CUDA(cudaEventCreate(&stopEvent))
 
-    // matrix descriptor initialization
-    CHECK_CUSPARSE( cusparseLtStructuredDescriptorInit(
-                                            &handle, &matA, num_A_rows,
-                                            num_A_cols, lda, alignment,
-                                            type, order,
-                                            CUSPARSELT_SPARSITY_50_PERCENT) )
-    CHECK_CUSPARSE( cusparseLtDenseDescriptorInit(
-                                            &handle, &matB, num_B_rows,
-                                            num_B_cols, ldb, alignment,
-                                            type, order) )
-    CHECK_CUSPARSE( cusparseLtDenseDescriptorInit(
-                                            &handle, &matC, num_C_rows,
-                                            num_C_cols, ldc, alignment,
-                                            type, order) )
-    // matmul, algorithm selection, and plan initialization
-    CHECK_CUSPARSE( cusparseLtMatmulDescriptorInit(
-                                            &handle, &matmul, opA, opB,
-                                            &matA, &matB, &matC, &matC,
-                                            compute_type) )
-    CHECK_CUSPARSE( cusparseLtMatmulAlgSelectionInit(
-                                            &handle, &alg_sel, &matmul,
-                                            CUSPARSELT_MATMUL_ALG_DEFAULT) )
-    int alg = 0;
-    CHECK_CUSPARSE( cusparseLtMatmulAlgSetAttribute(
-                                            &handle, &alg_sel,
-                                            CUSPARSELT_MATMUL_ALG_CONFIG_ID,
-                                            &alg, sizeof(alg)))
-    size_t workspace_size, compressed_size;
-    CHECK_CUSPARSE( cusparseLtMatmulGetWorkspace(&handle, &alg_sel,
-                                                 &workspace_size))
+    cublasHandle_t handle;
+    CHECK_CUBLAS(cublasCreate(&handle))
 
-    CHECK_CUSPARSE( cusparseLtMatmulPlanInit(&handle, &plan, &matmul, &alg_sel,
-                                             workspace_size) )
-    //--------------------------------------------------------------------------
-    // Prune the A matrix (in-place) and check the correcteness
-    CHECK_CUSPARSE( cusparseLtSpMMAPrune(&handle, &matmul, dA, dA,
-                                         CUSPARSELT_PRUNE_SPMMA_TILE, stream) )
-    CHECK_CUSPARSE( cusparseLtSpMMAPruneCheck(&handle, &matmul, dA,
-                                              d_valid, stream) )
-    int is_valid;
-    CHECK_CUDA( cudaMemcpyAsync(&is_valid, d_valid, sizeof(d_valid),
-                                cudaMemcpyDeviceToHost, stream) )
+    // Set the math mode to allow cuBLAS to use Tensor Cores:
+    CHECK_CUBLAS(cublasSetMathMode(handle, CUBLAS_TENSOR_OP_MATH))
+
     CHECK_CUDA( cudaStreamSynchronize(stream) )
-    if (is_valid != 0) {
-        std::printf("!!!! The matrix has been pruned in a wrong way. "
-                    "cusparseLtMatmul will not provide correct results\n");
-        return EXIT_FAILURE;
-    }
-    //--------------------------------------------------------------------------
-    // Compress the A matrix
-    CHECK_CUSPARSE( cusparseLtSpMMACompressedSize(&handle, &plan,
-                                                  &compressed_size) )
-    CHECK_CUDA( cudaMalloc((void**) &dA_compressed, compressed_size) )
-
-    CHECK_CUSPARSE( cusparseLtSpMMACompress(&handle, &plan, dA,
-                                            dA_compressed, stream) )
-    //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     // Perform the matrix multiplication
-    void*         d_workspace = nullptr;
-    int           num_streams = 1;
     float time, fast_time;
     fast_time = 10000000;
-for(int loop = 0;loop < 3; loop++)
+
+    //std::printf("(m, n, k, lda, ldb, ldc) = (%5d, %5d, %5d, %5d, %5d, %5d)   ", m, n, k,lda,ldb,ldc);
+for(int loop = 0;loop < 10; loop++)
 {
     CHECK_CUDA(cudaEventRecord(startEvent, stream))
-    CHECK_CUSPARSE(cusparseLtMatmul(&handle, &plan, &alpha, dA_compressed, dB,
-                                     &beta, dC, dD, d_workspace, &stream,
-                                     num_streams) )
+    CHECK_CUBLAS(cublasGemmEx(handle, opA, opB, m, n, k, (void *)&alpha,
+                          (void *)dA, CUDA_R_16F, lda,
+                          (void *)dB, CUDA_R_16F, ldb,
+                          (void *)&beta, (void *)dC, CUDA_R_16F, ldc, CUBLAS_COMPUTE_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP) )
     CHECK_CUDA(cudaEventRecord(stopEvent, stream) )
     CHECK_CUDA(cudaEventSynchronize(stopEvent) )
     CHECK_CUDA(cudaEventElapsedTime(&time, startEvent, stopEvent))
     if(time< fast_time)
 	fast_time = time;
 }
+    CHECK_CUDA( cudaStreamSynchronize(stream) )
     time = fast_time;
     double tflops = ((double)2*m*n*k)/(double)time * 1000 / 1000000000000;
     //std::cout << "time = " << time<<" ms"<< std::endl;
@@ -280,14 +221,10 @@ for(int loop = 0;loop < 3; loop++)
     std::cout << std::fixed;
     std::cout << std::setprecision (2)  << tflops << std::endl;
     //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    // destroy plan and handle
-    CHECK_CUSPARSE( cusparseLtMatmulPlanDestroy(&plan) )
-    CHECK_CUSPARSE( cusparseLtDestroy(&handle) )
-    //--------------------------------------------------------------------------
     // device result check
     // matrix A has been pruned
-    CHECK_CUDA( cudaMemcpy(hA, dA, A_size, cudaMemcpyDeviceToHost) )
-    CHECK_CUDA( cudaMemcpy(hC, dC, C_size, cudaMemcpyDeviceToHost) )
+    //CHECK_CUDA( cudaMemcpy(hA, dA, A_size, cudaMemcpyDeviceToHost) )
+    //CHECK_CUDA( cudaMemcpy(hC, dC, C_size, cudaMemcpyDeviceToHost) )
 
     bool A_std_layout = (is_rowmajor != isA_transposed);
     bool B_std_layout = (is_rowmajor != isB_transposed);
@@ -333,16 +270,16 @@ for(int loop = 0;loop < 3; loop++)
 #endif
     //--------------------------------------------------------------------------
     // device memory deallocation
+    CHECK_CUBLAS( cublasDestroy(handle))
     CHECK_CUDA( cudaEventDestroy(startEvent))
     CHECK_CUDA( cudaEventDestroy(stopEvent))
-    CHECK_CUDA( cudaFree(dA_compressed) )
     CHECK_CUDA( cudaFree(dA) )
     CHECK_CUDA( cudaFree(dB) )
     CHECK_CUDA( cudaFree(dC) )
-    CHECK_CUDA( cudaFree(d_valid) )
     free((void*)hA);
     free((void*)hB);
     free((void*)hC);
+    //std::printf("free all memory\n");
 }
 }
 
