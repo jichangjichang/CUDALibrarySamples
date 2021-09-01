@@ -77,11 +77,6 @@
     }                                                                          \
 }
 
-#define WIDTH    4096
-
-#define MATRIX_M WIDTH
-#define MATRIX_N WIDTH
-#define MATRIX_K WIDTH
 //#define VALIDATE TRUE
 constexpr int EXIT_UNSUPPORTED = 2;
 
@@ -109,28 +104,41 @@ int run_sparse()
     // Host problem definition, row-major order
     //
     //
-int step = 1280;
+
+std::printf("Trans     m     n     k   TFLOPS\n");
+for(int tn_nn_count = 0; tn_nn_count< 2 ; tn_nn_count++)
+{
+
 int max_value = 20480;
-std::vector<int> mn_size = {10240};
-std::vector<int> k_size = {2560};
+int step;
+std::vector<int> mn_size;
+std::vector<int> k_size;
+auto          opA   = CUSPARSE_OPERATION_TRANSPOSE;
+
+
+if(tn_nn_count == 0) //tn
+{
+step = 1280;
+mn_size.push_back(10240);
+k_size.push_back(2560);
 for(int k_init = k_size[0]+step; k_init<=max_value;k_init+=step)
 	k_size.push_back(k_init);
-
-//int step = 1024;
-//int max_value = 20480;
-//std::vector<int> mn_size = {3072};
-//std::vector<int> k_size = {10240};
-//for(int mn_init = mn_size[0]+step; mn_init<=max_value;mn_init+=step)
-//	mn_size.push_back(mn_init);
-
-std::printf("(     m,     n,     k)   TFLOPS\n");
+}
+else //nn
+{
+opA   = CUSPARSE_OPERATION_NON_TRANSPOSE;
+step = 1024;
+mn_size.push_back(3072);
+k_size.push_back(10240);
+for(int mn_init = mn_size[0]+step; mn_init<=max_value;mn_init+=step)
+	mn_size.push_back(mn_init);
+}
 for(auto itrMN : mn_size){
 for(auto itrK : k_size){
     int m     = itrMN; // bigger sizes may require dynamic allocations
     int n     = itrMN; // bigger sizes may require dynamic allocations
     int k     = itrK; // bigger sizes may require dynamic allocations
     auto          order = CUSPARSE_ORDER_COL;
-    auto          opA   = CUSPARSE_OPERATION_TRANSPOSE;
     auto          opB   = CUSPARSE_OPERATION_NON_TRANSPOSE;
     auto          type  = CUDA_R_16F;
     auto          compute_type = CUSPARSE_COMPUTE_16F;
@@ -276,7 +284,7 @@ for(int loop = 0;loop < 3; loop++)
     //std::cout << "n = " <<   n <<  std::endl;
     //std::cout << "k = " <<   k <<  std::endl;
 
-    std::printf("( %5d, %5d, %5d)   ", m, n, k);
+    std::printf("%s    %5d %5d %5d   ", (tn_nn_count)?"NN":"TN"  , m, n, k);
     std::cout << std::fixed;
     std::cout << std::setprecision (2)  << tflops << std::endl;
     //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -343,8 +351,9 @@ for(int loop = 0;loop < 3; loop++)
     free((void*)hA);
     free((void*)hB);
     free((void*)hC);
-}
-}
+}// for k
+}// for mn
 
+}//tn_nn
  return 1;
 }
