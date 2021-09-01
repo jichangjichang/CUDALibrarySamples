@@ -76,8 +76,9 @@
         return EXIT_FAILURE;                                                   \
     }                                                                          \
 }
+#define LOOP_COUNT 100
 //#define VALIDATE TRUE
-#define BENCH_BERT TRUE
+//#define BENCH_BERT TRUE
 constexpr int EXIT_UNSUPPORTED = 2;
 
 int run_sparse();
@@ -276,7 +277,7 @@ for(int bert_index = 0; bert_index < 4; bert_index++){
     int           num_streams = 1;
     float time, fast_time;
     fast_time = 10000000;
-for(int loop = 0;loop < 10; loop++)
+for(int loop = 0;loop < LOOP_COUNT; loop++)
 {
     CHECK_CUDA(cudaEventRecord(startEvent, stream))
     CHECK_CUSPARSE(cusparseLtMatmul(&handle, &plan, &alpha, dA_compressed, dB,

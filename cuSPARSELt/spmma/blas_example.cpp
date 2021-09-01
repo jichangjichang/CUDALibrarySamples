@@ -76,8 +76,9 @@
         return EXIT_FAILURE;                                                   \
     }                                                                          \
 }
+#define LOOP_COUNT 100
 //#define VALIDATE TRUE
-#define BENCH_BERT TRUE
+//#define BENCH_BERT TRUE
 constexpr int EXIT_UNSUPPORTED = 2;
 
 int run_blas();
@@ -215,7 +216,7 @@ for(int bert_index = 0; bert_index < 4; bert_index++){
     fast_time = 10000000;
 
     //std::printf("(m, n, k, lda, ldb, ldc) = (%5d, %5d, %5d, %5d, %5d, %5d)   ", m, n, k,lda,ldb,ldc);
-for(int loop = 0;loop < 10; loop++)
+for(int loop = 0;loop < LOOP_COUNT; loop++)
 {
     CHECK_CUDA(cudaEventRecord(startEvent, stream))
     CHECK_CUBLAS(cublasGemmEx(handle, opA, opB, m, n, k, (void *)&alpha,
