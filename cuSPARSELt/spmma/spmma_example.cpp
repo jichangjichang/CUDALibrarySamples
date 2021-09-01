@@ -77,6 +77,7 @@
     }                                                                          \
 }
 //#define VALIDATE TRUE
+#define BENCH_BERT TRUE
 constexpr int EXIT_UNSUPPORTED = 2;
 
 int run_sparse();
@@ -107,12 +108,12 @@ int run_sparse()
 std::printf("Trans     m     n     k   TFLOPS\n");
 for(int tn_nn_count = 0; tn_nn_count< 2 ; tn_nn_count++)
 {
-
+auto          opA   = CUSPARSE_OPERATION_TRANSPOSE;
+#ifndef BENCH_BERT
 int max_value = 20480;
 int step;
 std::vector<int> mn_size;
 std::vector<int> k_size;
-auto          opA   = CUSPARSE_OPERATION_TRANSPOSE;
 
 
 if(tn_nn_count == 0) //tn
@@ -137,6 +138,17 @@ for(auto itrK : k_size){
     int m     = itrMN; // bigger sizes may require dynamic allocations
     int n     = itrMN; // bigger sizes may require dynamic allocations
     int k     = itrK; // bigger sizes may require dynamic allocations
+#else
+if(tn_nn_count == 1) return 1;//skip NN
+std::vector<int> m_size = {3072,1024,4096,1024} ;
+std::vector<int> n_size = {16384,16384,16384,16384} ;
+std::vector<int> k_size = {1024,1024,1024,4096};
+
+for(int bert_index = 0; bert_index < 4; bert_index++){
+    int m     = m_size[bert_index]; // bigger sizes may require dynamic allocations
+    int n     = n_size[bert_index]; // bigger sizes may require dynamic allocations
+    int k     = k_size[bert_index]; // bigger sizes may require dynamic allocations
+#endif
     auto          order = CUSPARSE_ORDER_COL;
     auto          opB   = CUSPARSE_OPERATION_NON_TRANSPOSE;
     auto          type  = CUDA_R_16F;
@@ -264,7 +276,7 @@ for(auto itrK : k_size){
     int           num_streams = 1;
     float time, fast_time;
     fast_time = 10000000;
-for(int loop = 0;loop < 3; loop++)
+for(int loop = 0;loop < 10; loop++)
 {
     CHECK_CUDA(cudaEventRecord(startEvent, stream))
     CHECK_CUSPARSE(cusparseLtMatmul(&handle, &plan, &alpha, dA_compressed, dB,
@@ -351,8 +363,9 @@ for(int loop = 0;loop < 3; loop++)
     free((void*)hB);
     free((void*)hC);
 }// for k
+#ifndef BENCH_BERT
 }// for mn
-
+#endif
 }//tn_nn
  return 1;
 }
